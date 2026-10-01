@@ -1,7 +1,9 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type QueryCtx } from "./_generated/server";
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
+import { toEnglishDigits, type Listing as ListingRow } from "../lib/parser";
 import { OFFICE_ROLES, PRIVILEGED_ROLES, type OfficeRole } from "./schema";
 
 /**
@@ -42,6 +44,38 @@ async function byKey(ctx: Ctx, key: string): Promise<Doc<"listings"> | null> {
     .unique();
 }
 
+/** یک سند آگهی را به شکل قابل استفاده در UI (نوع Listing) تبدیل می‌کند. */
+function toListing(row: Doc<"listings">, contactPhone: string): ListingRow {
+  return {
+    id: row.key,
+    radarCode: row.radarCode ?? "",
+    city: row.city ?? "نامشخص",
+    cityLabel: row.city ?? "نامشخص",
+    neighborhood: row.neighborhood ?? "",
+    area: row.area ?? null,
+    rooms: row.rooms ?? null,
+    priceMillion: row.priceMillion ?? 0,
+    priceRaw: "",
+    depositMillion: row.depositMillion ?? null,
+    rentMillion: row.rentMillion ?? null,
+    pricePerMeter: row.pricePerMeter ?? null,
+    dealType: (row.dealType ?? "سایر") as ListingRow["dealType"],
+    propertyType: (row.propertyType ?? "سایر") as ListingRow["propertyType"],
+    title: row.title ?? "",
+    description: row.description ?? "",
+    phone: contactPhone,
+    divarUrl: row.divarUrl ?? "",
+    mapsUrl: row.mapsUrl ?? "",
+    date: row.date ?? "",
+    dateRaw: row.dateRaw ?? "",
+    poster: row.poster ?? "",
+    address: row.address ?? "",
+    notes: row.notes,
+    folderIds: row.folderIds,
+    contactPhone,
+  };
+}
+
 /**
  * خواندن آگهی‌ها از سرور.
  *
@@ -50,26 +84,25 @@ async function byKey(ctx: Ctx, key: string): Promise<Doc<"listings"> | null> {
  * مرورگر کاربر عادی یا مهمان نمی‌رسد.
  */
 export const listListings = query({
-  args: { limit: v.optional(v.number()) },
+  args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
     const r = await resolve(ctx);
-    if (!r) return [];
+    if (!r) {
+      return { page: [], isDone: true, continueCursor: "" };
+    }
 
-    const rows = await ctx.db
+    const page = await ctx.db
       .query("listings")
       .order("desc")
-      .take(args.limit ?? 500);
-    if (r.privileged) {
-      return rows.map((row) => ({
-        ...row,
-        contactPhone: row.phone ?? null,
-      }));
-    }
-    const fallback = await managerPhone(ctx);
-    return rows.map(({ phone: _phone, ...rest }) => ({
-      ...rest,
-      contactPhone: fallback,
-    }));
+      .paginate(args.paginationOpts);
+    // شمارهٔ آگهی فقط برای نقش‌های مجاز؛ بقیه شمارهٔ دفتر را می‌بینند
+    const fallback = r.privileged ? "" : await managerPhone(ctx);
+    return {
+      ...page,
+      page: page.page.map((row) =>
+        toListing(row, r.privileged ? (row.phone ?? "") : fallback),
+      ),
+    };
   },
 });
 
@@ -211,5 +244,59 @@ export const countListings = query({
   handler: async (ctx) => {
     const rows = await ctx.db.query("listings").take(2000);
     return { count: rows.length };
+  },
+});
+
+/**
+ * افزودن دستی یک آگهی توسط مدیر یا مشاور — بدون نیاز به فایل.
+ * مثل قانون واردکردن فایل، شمارهٔ تلفن اجباری است.
+ */
+export const createListing = mutation({
+  args: {
+    key: v.optional(v.string()),
+    radarCode: v.optional(v.string()),
+    city: v.optional(v.string()),
+    neighborhood: v.optional(v.string()),
+    area: v.optional(v.number()),
+    rooms: v.optional(v.number()),
+    priceMillion: v.optional(v.number()),
+    depositMillion: v.optional(v.number()),
+    rentMillion: v.optional(v.number()),
+    dealType: v.optional(v.string()),
+    propertyType: v.optional(v.string()),
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    address: v.optional(v.string()),
+    mapsUrl: v.optional(v.string()),
+    divarUrl: v.optional(v.string()),
+    date: v.optional(v.string()),
+    dateRaw: v.optional(v.string()),
+    poster: v.optional(v.string()),
+    phone: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const r = await resolve(ctx);
+    if (!r || !r.privileged) {
+      throw new Error("فقط مدیر یا مشاور اجازهٔ افزودن آگهی را دارد.");
+    }
+    const phone = toEnglishDigits(args.phone).replace(/\D/g, "");
+    if (!/^09\d{9}$/.test(phone)) {
+      throw new Error("شمارهٔ تلفن باید ۱۱ رقم و با 09 شروع شود.");
+    }
+    const { key, ...rest } = args;
+    delete (rest as { phone?: string }).phone;
+    const stableKey = (key ?? "").trim() || rest.divarUrl || rest.radarCode || phone;
+    if (await byKey(ctx, stableKey)) {
+      throw new Error("آگهی با این لینک یا کد رادار قبلاً ثبت شده است.");
+    }
+    const now = Date.now();
+    await ctx.db.insert("listings", {
+      ...rest,
+      key: stableKey,
+      phone,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return stableKey;
   },
 });

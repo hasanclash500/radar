@@ -117,7 +117,7 @@ function num(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   const cleaned = toEnglishDigits(String(value))
     .replace(/[،٬,\s]/g, "")
-    .replace(/[^\d.\-]/g, "");
+    .replace(/[^\d.-]/g, "");
   if (!cleaned) return null;
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;

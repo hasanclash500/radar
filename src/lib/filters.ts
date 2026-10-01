@@ -18,6 +18,9 @@ export interface Filters {
   priceMax: string;
   areaMin: string;
   areaMax: string;
+  /** بازهٔ تاریخ ثبت (YYYY-MM-DD) */
+  dateFrom: string;
+  dateTo: string;
   sort: SortKey;
 }
 
@@ -31,6 +34,8 @@ export const DEFAULT_FILTERS: Filters = {
   priceMax: "",
   areaMin: "",
   areaMax: "",
+  dateFrom: "",
+  dateTo: "",
   sort: "date-desc",
 };
 
@@ -82,6 +87,9 @@ export function applyFilters(listings: Listing[], f: Filters): Listing[] {
     if (pMax !== null && l.priceMillion > pMax) return false;
     if (aMin !== null && (l.area === null || l.area < aMin)) return false;
     if (aMax !== null && (l.area === null || l.area > aMax)) return false;
+    // تاریخ ثبت؛ تاریخ نامشخص با هر بازه‌ای سازگار نیست
+    if (f.dateFrom && (!l.date || l.date < f.dateFrom)) return false;
+    if (f.dateTo && (!l.date || l.date > f.dateTo)) return false;
     if (q) {
       const haystack = `${l.city} ${l.title} ${l.description} ${l.radarCode} ${l.phone} ${l.dealType} ${l.propertyType}`.toLowerCase();
       if (!haystack.includes(q)) return false;
@@ -117,6 +125,8 @@ export function hasActiveFilters(f: Filters): boolean {
     f.priceMin !== "" ||
     f.priceMax !== "" ||
     f.areaMin !== "" ||
-    f.areaMax !== ""
+    f.areaMax !== "" ||
+    f.dateFrom !== "" ||
+    f.dateTo !== ""
   );
 }

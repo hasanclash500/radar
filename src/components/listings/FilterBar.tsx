@@ -187,6 +187,27 @@ export default function FilterBar({
           </div>
         </div>
 
+        {/* بازه تاریخ ثبت */}
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">
+            بازه تاریخ ثبت
+          </Label>
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              type="date"
+              aria-label="از تاریخ"
+              value={filters.dateFrom}
+              onChange={(e) => onChange({ dateFrom: e.target.value })}
+            />
+            <Input
+              type="date"
+              aria-label="تا تاریخ"
+              value={filters.dateTo}
+              onChange={(e) => onChange({ dateTo: e.target.value })}
+            />
+          </div>
+        </div>
+
         {/* مرتب‌سازی */}
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">مرتب‌سازی</Label>
