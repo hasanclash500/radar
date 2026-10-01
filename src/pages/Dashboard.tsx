@@ -1,82 +1,40 @@
 import { ThemeToggle } from "@/components/ThemeToggle";
 import FilterBar from "@/components/listings/FilterBar";
 import ListingCard from "@/components/listings/ListingCard";
+import ShareDialog from "@/components/listings/ShareDialog";
 import UploadZone from "@/components/listings/UploadZone";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { exportCsv, exportExcel, exportJson } from "@/lib/exporters";
-import {
-  IMPORT_ACCEPT,
-  importListingsFile,
-  type ImportSource,
-} from "@/lib/importers";
-import {
-  DEFAULT_FILTERS,
-  applyFilters,
-  hasActiveFilters,
-  type Filters,
-} from "@/lib/filters";
+import { IMPORT_ACCEPT, importListingsFile } from "@/lib/importers";
+import { DEFAULT_FILTERS, applyFilters, hasActiveFilters, type Filters } from "@/lib/filters";
 import { faNum, formatPrice } from "@/lib/format";
-import {
-  DEAL_TYPES,
-  PROPERTY_TYPES,
-  parseHtmlFile,
-  type DealType,
-  type Listing,
-  type PropertyType,
-} from "@/lib/parser";
+import { DEAL_TYPES, PROPERTY_TYPES, parseHtmlFile, type DealType, type Listing, type PropertyType } from "@/lib/parser";
 import { SAMPLE_HTML } from "@/lib/sample";
+import { DEFAULT_SHARE_SETTINGS, type ShareableListing } from "@/lib/share";
 import {
-  Building2,
-  Coins,
-  FileCode2,
-  FileJson,
-  FileSpreadsheet,
-  FileText,
-  Loader2,
-  LogOut,
-  MapPinned,
-  Radar,
-  RotateCcw,
-  Ruler,
-  SearchX,
-  Upload,
+  Building2, Coins, FileCode2, FileJson, FileSpreadsheet, FileText, Loader2,
+  LogOut, MapPinned, Radar, RotateCcw, Ruler, SearchX, Send, Settings, Upload, X,
 } from "lucide-react";
-import {
-  useCallback,
-  useDeferredValue,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { useNavigate } from "react-router";
+import { useCallback, useDeferredValue, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 const PAGE_SIZE = 24;
 
 const HINTS = [
-  {
-    icon: FileCode2,
-    title: "استخراج خودکار",
-    body: "هر آگهی با یک عبارت باقاعده (regex) از دل فایل HTML خام بیرون کشیده می‌شود؛ کد رادار، قیمت، متراژ، اتاق، تاریخ و تلفن.",
-  },
-  {
-    icon: SearchX,
-    title: "جستجو و فیلتر دقیق",
-    body: "فیلتر بر اساس شهر، نوع معامله، نوع ملک، تعداد اتاق، بازه قیمت و بازه متراژ به‌همراه مرتب‌سازی.",
-  },
-  {
-    icon: FileSpreadsheet,
-    title: "خروجی سه‌گانه",
-    body: "CSV با حروف فارسی، اکسل واقعی (.xlsx) و JSON — از همان مجموعه‌ای که روی صفحه می‌بینید.",
-  },
+  { icon: FileCode2, title: "استخراج خودکار",
+    body: "هر آگهی با یک عبارت باقاعده از فایل HTML خام یا خروجی JSON بیرون کشیده می‌شود." },
+  { icon: SearchX, title: "جستجو و فیلتر دقیق",
+    body: "فیلتر بر اساس شهر، نوع معامله، نوع ملک، تعداد اتاق، بازه قیمت و متراژ همراه مرتب‌سازی." },
+  { icon: FileSpreadsheet, title: "خروجی سه‌گانه",
+    body: "CSV با حروف فارسی، اکسل واقعی و JSON از همان مجموعه‌ای که روی صفحه می‌بینید." },
 ];
 
 export default function Dashboard() {
@@ -84,206 +42,216 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const headerInputRef = useRef<HTMLInputElement>(null);
 
+  // نقش کاربر و منابع سرور
+  const roleData = useQuery(api.roles.myRole);
+  const settingsRow = useQuery(api.folders.getSettings);
+  const folders = useQuery(api.folders.listFolders);
+  const saveNotes = useMutation(api.listings.saveNotes);
+  const toggleFolder = useMutation(api.listings.toggleFolder);
+  const updateListing = useMutation(api.listings.updateListing);
+  const markShared = useMutation(api.listings.markShared);
+  const syncListings = useMutation(api.listings.upsertListings);
+
+  const role = roleData?.role ?? "guest";
+  const canSeePhone = roleData?.isPrivileged ?? false;
+
+  const settings = useMemo(
+    () => ({
+      officeName: settingsRow?.officeName || DEFAULT_SHARE_SETTINGS.officeName,
+      managerPhone: settingsRow?.managerPhone || "",
+      shareFooter: settingsRow?.shareFooter || "",
+    }),
+    [settingsRow],
+  );
+
   const [listings, setListings] = useState<Listing[]>([]);
   const [skipped, setSkipped] = useState(0);
   const [fileName, setFileName] = useState<string | null>(null);
   const [parsing, setParsing] = useState(false);
-  const [busyLabel, setBusyLabel] = useState("در حال استخراج آگهی‌ها از فایل…");
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(
-    null,
-  );
+  const [busyLabel, setBusyLabel] = useState("در حال پردازش فایل…");
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [shareOpen, setShareOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number } | null>(null);
 
   const deferredFilters = useDeferredValue(filters);
 
+  const afterLoad = useCallback(() => {
+    setFilters(DEFAULT_FILTERS);
+    setVisibleCount(PAGE_SIZE);
+    setSelected(new Set());
+  }, []);
+
   const parseText = useCallback(async (text: string, name: string) => {
-    setParsing(true);
-    setError(null);
-    setProgress({ done: 0, total: 0 });
+    setParsing(true); setError(null); setProgress({ done: 0, total: 0 });
     try {
-      const result = await parseHtmlFile(text, (done, total) =>
-        setProgress({ done, total }),
-      );
+      const result = await parseHtmlFile(text, (done, total) => setProgress({ done, total }));
       if (result.total === 0) {
-        setListings([]);
-        setSkipped(0);
-        setFileName(null);
-        setError(
-          "هیچ لینک دیواری در فایل پیدا نشد. مطمئن شوید فایل HTML خام همین کانال را بارگذاری کرده‌اید.",
-        );
+        setListings([]); setSkipped(0); setFileName(null);
+        setError("هیچ لینک دیواری در فایل پیدا نشد. مطمئن شوید فایل HTML خام همین کانال را بارگذاری کرده‌اید.");
         return;
       }
-      setListings(result.listings);
-      setSkipped(result.skipped);
-      setFileName(name);
-      setFilters(DEFAULT_FILTERS);
-      setVisibleCount(PAGE_SIZE);
+      setListings(result.listings); setSkipped(result.skipped); setFileName(name);
+      afterLoad();
       if (result.listings.length === 0) {
-        setError(
-          "هیچ آگهی معتبری با شماره تلفن پیدا نشد. آگهی‌های بدون تلفن طبق قانون، استخراج نمی‌شوند.",
-        );
+        setError("هیچ آگهی معتبری با شماره تلفن پیدا نشد.");
       } else {
         toast.success(`${faNum(result.listings.length)} آگهی استخراج شد`, {
-          description:
-            result.skipped > 0
-              ? `${faNum(result.skipped)} آگهی بدون شماره تلفن نادیده گرفته شد`
-              : undefined,
+          description: result.skipped > 0 ? `${faNum(result.skipped)} آگهی بدون شماره تلفن نادیده گرفته شد` : undefined,
         });
       }
     } catch (e) {
       console.error(e);
-      setError("پردازش فایل با خطا مواجه شد. فایل باید HTML خام کانال باشد.");
+      setError("پردازش فایل با خطا مواجه شد.");
     } finally {
-      setParsing(false);
-      setProgress(null);
+      setParsing(false); setProgress(null);
     }
-  }, []);
+  }, [afterLoad]);
 
-  const handleFile = useCallback(
-    async (file: File) => {
-      const name = file.name.toLowerCase();
-      try {
-        // فایل‌های خروجی خود برنامه (CSV/JSON/اکسل) مستقیماً وارد می‌شوند
-        if (name.endsWith(".csv") || name.endsWith(".json") || name.endsWith(".xlsx") || name.endsWith(".xls")) {
-          setParsing(true);
-          setError(null);
-          setBusyLabel(`در حال خواندن ${name.endsWith(".csv") ? "CSV" : name.endsWith(".json") ? "JSON" : "اکسل"}…`);
-          setProgress({ done: 0, total: 0 });
-          const result = await importListingsFile(file, (done, total) =>
-            setProgress({ done, total }),
-          );
-          if (result.total === 0) {
-            setError(
-              "هیچ ردیفی در فایل پیدا نشد. فایل باید خروجی CSV/JSON/اکسل همین برنامه باشد.",
-            );
-            return;
-          }
-          if (result.listings.length === 0) {
-            setError(
-              "هیچ ردیف معتبری با شماره تلفن پیدا نشد. ستون شماره تلفن باید پر باشد.",
-            );
-            return;
-          }
-          setListings(result.listings);
-          setSkipped(result.skipped);
-          setFileName(file.name);
-          setFilters(DEFAULT_FILTERS);
-          setVisibleCount(PAGE_SIZE);
-          toast.success(`${faNum(result.listings.length)} آگهی از ${result.source === "csv" ? "CSV" : result.source === "json" ? "JSON" : "اکسل"} وارد شد`, {
-            description:
-              result.skipped > 0
-                ? `${faNum(result.skipped)} ردیف بدون شماره تلفن نادیده گرفته شد`
-                : undefined,
-          });
-          return;
-        }
+  const handleFile = useCallback(async (file: File) => {
+    const name = file.name.toLowerCase();
+    try {
+      if (/\.(csv|json|xlsx|xls)$/.test(name)) {
+        setParsing(true); setError(null);
+        setBusyLabel(`در حال خواندن ${name.endsWith(".csv") ? "CSV" : name.endsWith(".json") ? "JSON" : "اکسل"}…`);
+        setProgress({ done: 0, total: 0 });
+        const result = await importListingsFile(file, (done, total) => setProgress({ done, total }));
+        if (result.total === 0) { setError("هیچ ردیفی در فایل پیدا نشد."); return; }
+        if (result.listings.length === 0) { setError("هیچ ردیف معتبری با شماره تلفن پیدا نشد."); return; }
+        setListings(result.listings); setSkipped(result.skipped); setFileName(file.name);
+        afterLoad();
+        toast.success(`${faNum(result.listings.length)} آگهی وارد شد`);
+      } else {
         const text = await file.text();
         await parseText(text, file.name);
-      } catch (e) {
-        console.error(e);
-        setError("خواندن فایل ممکن نشد. دوباره تلاش کنید.");
-      } finally {
-        setParsing(false);
-        setProgress(null);
       }
-    },
-    [parseText],
-  );
+    } catch (e) {
+      console.error(e);
+      setError("خواندن فایل ممکن نشد.");
+    } finally {
+      setParsing(false); setProgress(null);
+    }
+  }, [afterLoad, parseText]);
 
-  const handleSample = useCallback(() => {
-    void parseText(SAMPLE_HTML, "نمونه-داده.html");
-  }, [parseText]);
+  /** ذخیرهٔ آگهی‌ها روی سرور برای اضافه‌کردن روزانه. */
+  const syncToServer = useCallback(async () => {
+    if (!canSeePhone || listings.length === 0) return;
+    setSyncing(true);
+    try {
+      const BATCH = 400;
+      let added = 0; let updated = 0;
+      for (let i = 0; i < listings.length; i += BATCH) {
+        const items = listings.slice(i, i + BATCH).map((l) => ({
+          key: l.radarCode || `${l.phone}-${l.divarUrl || l.city}`,
+          radarCode: l.radarCode || undefined,
+          city: l.city, neighborhood: l.neighborhood || undefined,
+          area: l.area ?? undefined, rooms: l.rooms ?? undefined,
+          priceMillion: l.priceMillion || undefined,
+          depositMillion: l.depositMillion ?? undefined,
+          rentMillion: l.rentMillion ?? undefined,
+          pricePerMeter: l.pricePerMeter ?? undefined,
+          dealType: l.dealType, propertyType: l.propertyType,
+          title: l.title || undefined, description: l.description || undefined,
+          address: l.address || undefined, mapsUrl: l.mapsUrl || undefined,
+          divarUrl: l.divarUrl || undefined, date: l.date || undefined,
+          dateRaw: l.dateRaw || undefined, poster: l.poster || undefined,
+          phone: l.phone,
+        }));
+        const res = await syncListings({ items });
+        added += res.added; updated += res.updated;
+        setSyncProgress({ done: Math.min(i + BATCH, listings.length), total: listings.length });
+      }
+      toast.success("آگهی‌ها روی سرور ذخیره شد", {
+        description: `${faNum(added)} جدید • ${faNum(updated)} بروزرسانی`,
+      });
+    } catch (e) {
+      console.error(e);
+      toast.error("ذخیره روی سرور ناموفق بود");
+    } finally {
+      setSyncing(false); setSyncProgress(null);
+    }
+  }, [canSeePhone, listings, syncListings]);
+
+  const handleSample = useCallback(() => { void parseText(SAMPLE_HTML, "نمونه-داده.html"); }, [parseText]);
 
   const updateFilters = useCallback((patch: Partial<Filters>) => {
-    setFilters((prev) => ({ ...prev, ...patch }));
-    setVisibleCount(PAGE_SIZE);
+    setFilters((prev) => ({ ...prev, ...patch })); setVisibleCount(PAGE_SIZE);
   }, []);
+  const resetFilters = useCallback(() => { setFilters(DEFAULT_FILTERS); setVisibleCount(PAGE_SIZE); }, []);
 
-  const resetFilters = useCallback(() => {
-    setFilters(DEFAULT_FILTERS);
-    setVisibleCount(PAGE_SIZE);
-  }, []);
-
-  const filtered = useMemo(
-    () => applyFilters(listings, deferredFilters),
-    [listings, deferredFilters],
-  );
+  const filtered = useMemo(() => applyFilters(listings, deferredFilters), [listings, deferredFilters]);
   const visible = filtered.slice(0, visibleCount);
 
   const cities = useMemo(() => {
     const set = new Set(listings.map((l) => l.city));
     return Array.from(set).sort((a, b) => a.localeCompare(b, "fa"));
   }, [listings]);
-
   const dealTypes = useMemo(() => {
     const present = new Set(listings.map((l) => l.dealType));
-    const extras = Array.from(present).filter(
-      (d) => !DEAL_TYPES.includes(d as DealType),
-    );
-    return [...DEAL_TYPES.filter((d) => present.has(d)), ...extras];
+    return [...DEAL_TYPES.filter((d) => present.has(d)), ...Array.from(present).filter((d) => !DEAL_TYPES.includes(d as DealType))];
   }, [listings]);
-
   const propertyTypes = useMemo(() => {
     const present = new Set(listings.map((l) => l.propertyType));
-    const extras = Array.from(present).filter(
-      (p) => !PROPERTY_TYPES.includes(p as PropertyType),
-    );
-    return [...PROPERTY_TYPES.filter((p) => present.has(p)), ...extras];
+    return [...PROPERTY_TYPES.filter((p) => present.has(p)), ...Array.from(present).filter((p) => !PROPERTY_TYPES.includes(p as PropertyType))];
   }, [listings]);
 
   const stats = useMemo(() => {
     const withPrice = listings.filter((l) => l.priceMillion > 0);
     const withArea = listings.filter((l) => l.area !== null);
-    const avgPrice = withPrice.length
-      ? Math.round(
-          withPrice.reduce((s, l) => s + l.priceMillion, 0) / withPrice.length,
-        )
-      : 0;
-    const avgArea = withArea.length
-      ? Math.round(
-          withArea.reduce((s, l) => s + (l.area ?? 0), 0) / withArea.length,
-        )
-      : 0;
     return {
       count: listings.length,
       cities: new Set(listings.map((l) => l.city)).size,
-      avgPrice,
-      avgArea,
+      avgPrice: withPrice.length ? Math.round(withPrice.reduce((s, l) => s + l.priceMillion, 0) / withPrice.length) : 0,
+      avgArea: withArea.length ? Math.round(withArea.reduce((s, l) => s + (l.area ?? 0), 0) / withArea.length) : 0,
     };
   }, [listings]);
 
-  const doExport = useCallback(
-    async (kind: "csv" | "json" | "excel") => {
-      if (!filtered.length) return;
-      try {
-        if (kind === "csv") exportCsv(filtered);
-        else if (kind === "json") exportJson(filtered);
-        else await exportExcel(filtered);
-        toast.success(`خروجی ${faNum(filtered.length)} آگهی تهیه شد`);
-      } catch (e) {
-        console.error(e);
-        toast.error("تهیه خروجی با خطا مواجه شد");
-      }
-    },
-    [filtered],
+  const doExport = useCallback(async (kind: "csv" | "json" | "excel") => {
+    if (!filtered.length) return;
+    try {
+      if (kind === "csv") exportCsv(filtered);
+      else if (kind === "json") exportJson(filtered);
+      else await exportExcel(filtered);
+      toast.success(`خروجی ${faNum(filtered.length)} آگهی تهیه شد`);
+    } catch { toast.error("تهیه خروجی با خطا مواجه شد"); }
+  }, [filtered]);
+
+  const handleSignOut = async () => { await signOut(); navigate("/"); };
+  const filtersActive = hasActiveFilters(filters);
+  const pct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
+
+  const shareList: ShareableListing[] = useMemo(
+    () => (selected.size > 0 ? filtered : filtered.slice(0, 1))
+      .filter((l) => selected.size === 0 || selected.has(l.radarCode || `${l.phone}-${l.divarUrl || l.city}`))
+      .map((l) => ({
+        key: l.radarCode || `${l.phone}-${l.divarUrl || l.city}`,
+        title: l.title, city: l.city, neighborhood: l.neighborhood,
+        area: l.area, rooms: l.rooms, priceMillion: l.priceMillion,
+        depositMillion: l.depositMillion, rentMillion: l.rentMillion,
+        dealType: l.dealType, propertyType: l.propertyType,
+        description: l.description, address: l.address,
+        divarUrl: l.divarUrl, mapsUrl: l.mapsUrl,
+        contactPhone: canSeePhone ? l.phone : settings.managerPhone,
+      })),
+    [filtered, selected, canSeePhone, settings.managerPhone],
   );
 
-  const handleSignOut = async () => {
-    await signOut();
-    navigate("/");
+  const toggleSelect = (key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
   };
 
-  const filtersActive = hasActiveFilters(filters);
-  const pct =
-    progress && progress.total > 0
-      ? Math.min(100, Math.round((progress.done / progress.total) * 100))
-      : 0;
+  const folderList = (folders ?? []) as { _id: string; name: string; color?: string }[];
 
   return (
     <main className="min-h-screen">
-      {/* هدر برنامه */}
       <header className="glass sticky top-0 z-40 border-b border-border/60">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -291,232 +259,157 @@ export default function Dashboard() {
               <Radar className="size-5" />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-base font-extrabold leading-tight">
-                ملک‌رادار
-              </h1>
+              <h1 className="truncate text-base font-extrabold leading-tight">ملک‌رادار</h1>
               <p className="hidden truncate text-xs text-muted-foreground sm:block">
-                تحلیل‌گر آگهی‌های املاک کانال تلگرام
+                نقش: {role === "admin" ? "مدیر" : role === "consultant" ? "مشاور" : role === "user" ? "کاربر" : "مهمان"}
               </p>
             </div>
             {fileName && (
-              <span
-                dir="ltr"
-                className="hidden max-w-52 truncate rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-[11px] font-medium text-muted-foreground md:inline-block"
-                title={fileName}
-              >
+              <span dir="ltr" title={fileName}
+                className="hidden max-w-52 truncate rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-[11px] font-medium text-muted-foreground md:inline-block">
                 {fileName}
               </span>
             )}
           </div>
-
           <div className="flex shrink-0 items-center gap-2">
+            <Button asChild variant="outline" size="sm" className="gap-1.5">
+              <Link to="/admin" title="مدیریت دفتر و افزودن روزانهٔ آگهی">
+                <Settings className="size-4" />
+                <span className="hidden sm:inline">مدیریت</span>
+              </Link>
+            </Button>
             <ThemeToggle />
-            <input
-              ref={headerInputRef}
-              type="file"
+            <input ref={headerInputRef} type="file"
               accept={".html,.htm,.txt," + IMPORT_ACCEPT + ",text/html,text/plain"}
               className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void handleFile(f);
-                e.target.value = "";
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => headerInputRef.current?.click()}
-              disabled={parsing}
-            >
-              <Upload className="size-4" />
-              <span className="hidden sm:inline">فایل جدید</span>
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); e.target.value = ""; }} />
+            <Button type="button" variant="outline" size="sm" className="gap-1.5"
+              onClick={() => headerInputRef.current?.click()} disabled={parsing}>
+              <Upload className="size-4" /><span className="hidden sm:inline">فایل جدید</span>
             </Button>
+            {canSeePhone && listings.length > 0 && (
+              <Button type="button" variant="outline" size="sm" className="gap-1.5"
+                onClick={() => void syncToServer()} disabled={syncing}>
+                {syncing ? <Loader2 className="size-4 animate-spin" /> : <Building2 className="size-4" />}
+                <span className="hidden sm:inline">{syncing ? "ذخیره…" : "ذخیره روی سرور"}</span>
+              </Button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5"
-                  disabled={parsing || filtered.length === 0}
-                >
-                  <FileSpreadsheet className="size-4" />
-                  <span className="hidden sm:inline">خروجی</span>
+                <Button type="button" variant="outline" size="sm" className="gap-1.5"
+                  disabled={parsing || filtered.length === 0}>
+                  <FileSpreadsheet className="size-4" /><span className="hidden sm:inline">خروجی</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-52">
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  خروجی از {faNum(filtered.length)} آگهی نمایش‌داده‌شده
+                  خروجی از {faNum(filtered.length)} آگهی
                 </DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => void doExport("csv")}>
-                  <FileText className="size-4" />
-                  فایل CSV (مخصوص اکسل)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void doExport("excel")}>
-                  <FileSpreadsheet className="size-4" />
-                  فایل اکسل (.xlsx)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void doExport("json")}>
-                  <FileJson className="size-4" />
-                  فایل JSON
-                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void doExport("csv")}><FileText className="size-4" />فایل CSV</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void doExport("excel")}><FileSpreadsheet className="size-4" />فایل اکسل (.xlsx)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void doExport("json")}><FileJson className="size-4" />فایل JSON</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-9"
-              title="خروج از حساب"
-              onClick={handleSignOut}
-            >
-              <LogOut className="size-4" />
-            </Button>
+            <Button type="button" variant="ghost" size="icon" className="size-9"
+              title="خروج از حساب" onClick={handleSignOut}><LogOut className="size-4" /></Button>
           </div>
         </div>
       </header>
 
       <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
-        {/* در حال پردازش */}
         {parsing && (
           <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
             <div className="mb-3 flex items-center gap-2.5">
               <Loader2 className="size-5 animate-spin text-primary" />
-              <p className="font-bold">
-                {busyLabel}
+              <p className="font-bold">{busyLabel}
                 {progress && progress.total > 0 && (
-                  <span className="mr-1 text-sm font-normal text-muted-foreground">
-                    {faNum(pct)}٪
-                  </span>
+                  <span className="mr-1 text-sm font-normal text-muted-foreground">{faNum(pct)}٪</span>
                 )}
               </p>
             </div>
             <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-gradient-to-l from-primary to-gold transition-all duration-200"
-                style={{ width: `${pct}%` }}
-              />
+              <div className="h-full rounded-full bg-gradient-to-l from-primary to-gold transition-all duration-200"
+                style={{ width: `${pct}%` }} />
             </div>
-            {progress && progress.total > 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {faNum(progress.done)} از {faNum(progress.total)} بلوک آگهی
-              </p>
-            )}
           </div>
         )}
 
-        {/* خطا */}
+        {syncing && syncProgress && (
+          <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 text-sm font-medium">
+            ذخیره روی سرور: {faNum(syncProgress.done)} از {faNum(syncProgress.total)}
+          </div>
+        )}
+
         {!parsing && error && (
-          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-700 dark:text-amber-400">
-            {error}
-          </div>
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-700 dark:text-amber-400">{error}</div>
         )}
 
-        {/* حالت خالی */}
         {!parsing && listings.length === 0 && (
           <section className="space-y-6">
-            <UploadZone
-              onFile={(f) => void handleFile(f)}
-              onSample={handleSample}
-              loading={parsing}
-              progress={progress}
-              busyLabel={busyLabel}
-            />
+            <UploadZone onFile={(f) => void handleFile(f)} onSample={handleSample}
+              loading={parsing} progress={progress} busyLabel={busyLabel} />
             <div className="grid gap-4 sm:grid-cols-3">
               {HINTS.map(({ icon: Icon, title, body }) => (
-                <div
-                  key={title}
-                  className="rounded-2xl border border-border/70 bg-card/70 p-4"
-                >
+                <div key={title} className="rounded-2xl border border-border/70 bg-card/70 p-4">
                   <div className="mb-2 flex size-9 items-center justify-center rounded-lg bg-primary/12 text-primary ring-1 ring-primary/25">
                     <Icon className="size-4" />
                   </div>
                   <h3 className="mb-1 text-sm font-extrabold">{title}</h3>
-                  <p className="text-xs leading-6 text-muted-foreground">
-                    {body}
-                  </p>
+                  <p className="text-xs leading-6 text-muted-foreground">{body}</p>
                 </div>
               ))}
             </div>
           </section>
         )}
 
-        {/* نتایج */}
         {!parsing && listings.length > 0 && (
           <>
-            {/* آمار */}
             <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {[
-                {
-                  icon: Building2,
-                  label: "کل آگهی‌ها",
-                  value: faNum(stats.count),
-                },
+                { icon: Building2, label: "کل آگهی‌ها", value: faNum(stats.count) },
                 { icon: MapPinned, label: "شهرها", value: faNum(stats.cities) },
-                {
-                  icon: Coins,
-                  label: "میانگین قیمت",
-                  value: stats.avgPrice ? formatPrice(stats.avgPrice) : "—",
-                },
-                {
-                  icon: Ruler,
-                  label: "میانگین متراژ",
-                  value: stats.avgArea ? `${faNum(stats.avgArea)} متر` : "—",
-                },
+                { icon: Coins, label: "میانگین قیمت", value: stats.avgPrice ? formatPrice(stats.avgPrice) : "—" },
+                { icon: Ruler, label: "میانگین متراژ", value: stats.avgArea ? `${faNum(stats.avgArea)} متر` : "—" },
               ].map(({ icon: Icon, label, value }) => (
-                <div
-                  key={label}
-                  className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card/70 p-3.5 shadow-sm"
-                >
+                <div key={label} className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card/70 p-3.5 shadow-sm">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary ring-1 ring-primary/25">
                     <Icon className="size-5" />
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-lg font-extrabold leading-tight">
-                      {value}
-                    </p>
+                    <p className="truncate text-lg font-extrabold leading-tight">{value}</p>
                     <p className="text-xs text-muted-foreground">{label}</p>
                   </div>
                 </div>
               ))}
             </section>
 
-            <FilterBar
-              filters={filters}
-              onChange={updateFilters}
-              onReset={resetFilters}
-              cities={cities}
-              dealTypes={dealTypes}
-              propertyTypes={propertyTypes}
-            />
+            <FilterBar filters={filters} onChange={updateFilters} onReset={resetFilters}
+              cities={cities} dealTypes={dealTypes} propertyTypes={propertyTypes} />
 
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            {/* نوار انتخاب و ارسال */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border/70 bg-card/70 px-4 py-2.5">
               <p className="text-sm text-muted-foreground">
-                <span className="font-extrabold text-foreground">
-                  {faNum(filtered.length)}
-                </span>{" "}
-                آگهی از {faNum(listings.length)} مورد
+                <span className="font-extrabold text-foreground">{faNum(filtered.length)}</span> آگهی از {faNum(listings.length)} مورد
                 {filtersActive && " (با اعمال فیلترها)"}
               </p>
-              <div className="flex items-center gap-3">
-                {skipped > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {faNum(skipped)} آگهی بدون شماره تلفن نادیده گرفته شد
-                  </p>
+              <div className="flex flex-wrap items-center gap-2">
+                {selected.size > 0 && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/12 px-2.5 py-1 text-xs font-bold text-primary">
+                    {faNum(selected.size)} انتخاب‌شده
+                    <button type="button" onClick={() => setSelected(new Set())}
+                      className="rounded-full p-0.5 hover:bg-primary/20">
+                      <X className="size-3" />
+                    </button>
+                  </span>
                 )}
-                {filtersActive && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1.5 text-xs"
-                    onClick={resetFilters}
-                  >
-                    <RotateCcw className="size-3.5" />
-                    حذف فیلترها
-                  </Button>
+                <Button type="button" size="sm" className="gap-1.5"
+                  disabled={filtered.length === 0}
+                  onClick={() => setShareOpen(true)}>
+                  <Send className="size-4" />
+                  ارسال آگهی
+                </Button>
+                {skipped > 0 && (
+                  <p className="text-xs text-muted-foreground">{faNum(skipped)} آگهی بدون شماره تلفن</p>
                 )}
               </div>
             </div>
@@ -525,33 +418,33 @@ export default function Dashboard() {
               <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border py-16 text-center">
                 <SearchX className="size-8 text-muted-foreground" />
                 <p className="font-bold">آگهی‌ای با این فیلترها پیدا نشد</p>
-                <p className="text-sm text-muted-foreground">
-                  بازه قیمت یا متراژ را تغییر دهید و دوباره امتحان کنید.
-                </p>
                 <Button type="button" variant="outline" size="sm" onClick={resetFilters}>
-                  <RotateCcw className="size-4" />
-                  پاک‌کردن فیلترها
+                  <RotateCcw className="size-4" />پاک‌کردن فیلترها
                 </Button>
               </div>
             ) : (
               <>
                 <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-                  {visible.map((l) => (
-                    <ListingCard key={l.id} listing={l} />
-                  ))}
+                  {visible.map((l) => {
+                    const key = l.radarCode || `${l.phone}-${l.divarUrl || l.city}`;
+                    return (
+                      <ListingCard key={key} listing={l} canSeePhone={canSeePhone}
+                        managerPhone={settings.managerPhone}
+                        selected={selected.has(key)}
+                        onToggleSelect={() => toggleSelect(key)}
+                        onShare={() => { setSelected(new Set([key])); setShareOpen(true); }}
+                        folders={folderList}
+                        onSaveNotes={canSeePhone ? async (notes) => { await saveNotes({ key, notes }); } : undefined}
+                        onToggleFolder={canSeePhone ? async (fid) => { await toggleFolder({ key, folderId: fid }); } : undefined}
+                        onSaveLocation={canSeePhone ? async (patch) => { await updateListing({ key, patch }); } : undefined} />
+                    );
+                  })}
                 </div>
                 {filtered.length > visibleCount && (
                   <div className="flex justify-center pt-1">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5"
-                      onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
-                    >
-                      {`نمایش آگهی‌های بیشتر (${faNum(
-                        Math.min(PAGE_SIZE, filtered.length - visibleCount),
-                      )} مورد دیگر)`}
+                    <Button type="button" variant="outline" size="sm" className="gap-1.5"
+                      onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
+                      نمایش آگهی‌های بیشتر ({faNum(Math.min(PAGE_SIZE, filtered.length - visibleCount))} مورد دیگر)
                     </Button>
                   </div>
                 )}
@@ -560,6 +453,10 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      <ShareDialog open={shareOpen} onOpenChange={setShareOpen}
+        listings={shareList} settings={settings} onSettingsChange={() => {}}
+        onShared={() => { if (selected.size > 0) void markShared({ keys: Array.from(selected) }); }} />
     </main>
   );
 }
