@@ -13,6 +13,7 @@ import {
   MapPin,
   Phone,
   Ruler,
+  UserRound,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -84,15 +85,28 @@ export default function ListingCard({ listing: l }: ListingCardProps) {
       <div className="flex items-center gap-1.5">
         <MapPin className="size-4 shrink-0 text-primary" />
         <h3 className="truncate text-lg font-extrabold leading-tight">
-          {l.city}
+          {l.neighborhood ? `${l.city}، ${l.neighborhood}` : l.city}
         </h3>
       </div>
       <p className="text-gradient-brand text-2xl font-extrabold tracking-tight">
         {formatPrice(l.priceMillion)}
       </p>
-      {l.priceRaw && l.dealType !== "فروش" && (
+      {(l.depositMillion !== null || l.rentMillion !== null) && (
+        <p className="-mt-2 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+          {l.depositMillion !== null && (
+            <span>رهن: {formatPrice(l.depositMillion)}</span>
+          )}
+          {l.rentMillion !== null && <span>اجاره: {formatPrice(l.rentMillion)}</span>}
+        </p>
+      )}
+      {l.priceRaw && !l.depositMillion && !l.rentMillion && l.dealType !== "فروش" && (
         <p className="-mt-2 text-xs text-muted-foreground" dir="auto">
           {l.priceRaw}
+        </p>
+      )}
+      {l.pricePerMeter !== null && l.pricePerMeter > 0 && (
+        <p className="-mt-1 text-xs text-muted-foreground">
+          هر متر: {formatPrice(l.pricePerMeter)}
         </p>
       )}
 
@@ -110,6 +124,12 @@ export default function ListingCard({ listing: l }: ListingCardProps) {
           <span className="flex items-center gap-1.5">
             <CalendarDays className="size-4 text-primary/80" />
             {l.dateRaw}
+          </span>
+        )}
+        {l.poster && (
+          <span className="flex items-center gap-1.5">
+            <UserRound className="size-4 text-primary/80" />
+            {l.poster}
           </span>
         )}
       </div>
@@ -147,6 +167,13 @@ export default function ListingCard({ listing: l }: ListingCardProps) {
           </>
         )}
       </div>
+
+      {l.address && (
+        <p className="flex items-start gap-1.5 border-t border-border/60 pt-3 text-[13px] leading-6 text-muted-foreground">
+          <MapPin className="mt-0.5 size-3.5 shrink-0 text-primary/70" />
+          <span dir="auto">{l.address}</span>
+        </p>
+      )}
 
       {/* اکشن‌ها */}
       <div className="mt-auto flex items-center gap-2 pt-1">

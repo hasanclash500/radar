@@ -4,9 +4,13 @@ import type { Listing } from "./parser";
 export const CSV_HEADERS = [
   "کد رادار",
   "شهر",
+  "محله",
   "متراژ (متر)",
   "تعداد اتاق",
   "قیمت (میلیون تومان)",
+  "ودیعه (میلیون تومان)",
+  "اجاره (میلیون تومان)",
+  "قیمت هر متر (میلیون تومان)",
   "نوع معامله",
   "نوع ملک",
   "عنوان",
@@ -15,15 +19,21 @@ export const CSV_HEADERS = [
   "لینک دیوار",
   "لینک گوگل مپ",
   "تاریخ ثبت",
+  "آگهی‌دهنده",
+  "آدرس",
 ] as const;
 
 function toCells(l: Listing): (string | number)[] {
   return [
     l.radarCode,
     l.city,
+    l.neighborhood,
     l.area ?? "",
     l.rooms ?? "",
     l.priceMillion || "",
+    l.depositMillion ?? "",
+    l.rentMillion ?? "",
+    l.pricePerMeter ?? "",
     l.dealType,
     l.propertyType,
     l.title,
@@ -32,6 +42,8 @@ function toCells(l: Listing): (string | number)[] {
     l.divarUrl,
     l.mapsUrl,
     l.dateRaw || l.date,
+    l.poster,
+    l.address,
   ];
 }
 
@@ -72,9 +84,13 @@ export function exportJson(listings: Listing[]): void {
   const data = listings.map((l) => ({
     radar_code: l.radarCode,
     city: l.city,
+    neighborhood: l.neighborhood,
     area_m2: l.area,
     rooms: l.rooms,
     price_million_toman: l.priceMillion,
+    deposit_million_toman: l.depositMillion,
+    rent_million_toman: l.rentMillion,
+    price_per_meter_million: l.pricePerMeter,
     price_raw: l.priceRaw,
     deal_type: l.dealType,
     property_type: l.propertyType,
@@ -85,6 +101,8 @@ export function exportJson(listings: Listing[]): void {
     maps_url: l.mapsUrl,
     date: l.date,
     date_raw: l.dateRaw,
+    poster: l.poster,
+    address: l.address,
   }));
   const blob = new Blob([JSON.stringify(data, null, 2)], {
     type: "application/json;charset=utf-8",
@@ -100,9 +118,13 @@ export async function exportExcel(listings: Listing[]): Promise<void> {
   sheet["!cols"] = [
     { wch: 14 }, // کد رادار
     { wch: 14 }, // شهر
+    { wch: 14 }, // محله
     { wch: 10 }, // متراژ
     { wch: 9 }, // اتاق
     { wch: 18 }, // قیمت
+    { wch: 14 }, // ودیعه
+    { wch: 14 }, // اجاره
+    { wch: 12 }, // قیمت هر متر
     { wch: 13 }, // نوع معامله
     { wch: 11 }, // نوع ملک
     { wch: 40 }, // عنوان
@@ -111,6 +133,8 @@ export async function exportExcel(listings: Listing[]): Promise<void> {
     { wch: 40 }, // دیوار
     { wch: 45 }, // مپ
     { wch: 12 }, // تاریخ
+    { wch: 12 }, // آگهی‌دهنده
+    { wch: 50 }, // آدرس
   ];
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "آگهی‌ها");

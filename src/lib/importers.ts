@@ -28,25 +28,32 @@ const PROPS: PropertyType[] = [
 
 /** کلیدهای استاندارد JSON و هم‌معنی‌های فارسی/لاتین هر فیلد. */
 const FIELD_ALIASES: Record<string, string[]> = {
-  radarCode: ["رادار_کد", "کد رادار", "radar_code", "radarcode", "کدرادار"],
+  radarCode: ["رادار_کد", "کد رادار", "radar_code", "radarcode", "کدرادار", "code", "کد"],
   city: ["شهر", "شهرستان", "city"],
-  area: ["متراژ", "متراژ (متر)", "area_m2", "متراژ (متر مربع)"],
+  neighborhood: ["محله", "neighborhood"],
+  area: ["متراژ", "متراژ (متر)", "area_m2", "متراژ (متر مربع)", "area"],
   rooms: ["تعداد اتاق", "اتاق", "rooms", "تعداد خواب"],
   priceMillion: [
     "قیمت (میلیون تومان)",
     "قیمت",
     "price_million_toman",
     "قیمت (تومان)",
+    "price",
   ],
-  dealType: ["نوع معامله", "deal_type", "معامله"],
-  propertyType: ["نوع ملک", "property_type"],
+  deposit: ["ودیعه", "رهن", "deposit"],
+  rent: ["اجاره", "rent"],
+  pricePerMeter: ["قیمت هر متر", "price_per_meter", "قیمت هر متر (میلیون تومان)", "pricepermeter"],
+  dealType: ["نوع معامله", "deal_type", "معامله", "deal"],
+  propertyType: ["نوع ملک", "property_type", "type"],
   title: ["عنوان", "title"],
-  description: ["توضیحات", "description", "توضیحات کامل"],
+  description: ["توضیحات", "description", "توضیحات کامل", "desc", "fullText"],
   phone: ["شماره تلفن", "تلفن", "phone", "موبایل"],
-  divarUrl: ["لینک دیوار", "divar_url", "لینک"],
-  mapsUrl: ["لینک گوگل مپ", "maps_url", "نقشه"],
+  divarUrl: ["لینک دیوار", "divar_url", "لینک", "divar"],
+  mapsUrl: ["لینک گوگل مپ", "maps_url", "نقشه", "map"],
   date: ["تاریخ ثبت", "date", "تاریخ"],
   dateRaw: ["date_raw", "تاریخ خام"],
+  poster: ["آگهی‌دهنده", "poster", "آگهی دهنده", "منبع"],
+  address: ["آدرس", "ادرس", "address", "نشانی"],
 };
 
 function normalizeKey(key: string): string {
@@ -138,7 +145,10 @@ function normalizeDate(value: unknown): { date: string; dateRaw: string } {
 }
 
 function normalizePhone(value: unknown): string | null {
-  const digits = toEnglishDigits(str(value)).replace(/\D/g, "");
+  if (typeof value !== "string") return null;
+  // آگهی‌های غیر از شماره موبایل (مثل «اجاره») را رد کن
+  if (!/09\d{9}/.test(value)) return null;
+  const digits = toEnglishDigits(value).replace(/\D/g, "");
   const m = digits.match(/09\d{9}/);
   return m ? m[0] : null;
 }
@@ -149,8 +159,21 @@ function rowToListing(row: Record<string, unknown>): Listing | null {
   if (!phone) return null; // قانون اصلی: آگهی بدون تلفن استخراج نمی‌شود
 
   const radarCode = str(mapped.radarCode);
-  const city = str(mapped.city) || "نامشخص";
-  const priceMillion = num(mapped.priceMillion) ?? 0;
+  // داده خام کانال گاهی مقدار غیر-شهر در ستون city دارد
+  const cityRaw = str(mapped.city);
+  const city = cityRaw && !/^(اجاره|فروش|رهن|مناسب|قیمت)$/.test(cityRaw) ? cityRaw : "نامشخص";
+  const neighborhood = str(mapped.neighborhood);
+  const deposit = num(mapped.deposit);
+  const rent = num(mapped.rent);
+  const pricePerMeter = num(mapped.pricePerMeter);
+
+  // قیمت کل: برای رهن و اجاره ترکیب ودیعه+اجاره؛ در غیر این‌صورت فیلد price
+  const deal = str(mapped.dealType);
+  const priceField = num(mapped.priceMillion) ?? 0;
+  const priceMillion =
+    /رهن|اجاره/.test(deal) && (deposit !== null || rent !== null)
+      ? (deposit ?? 0) + (rent ?? 0)
+      : priceField;
 
   // تاریخ ممکن است YYYY-MM-DD (خروجی JSON) یا YYYY/M/D (خروجی CSV) باشد
   const { date, dateRaw } = normalizeDate(mapped.date ?? mapped.dateRaw);
@@ -164,9 +187,13 @@ function rowToListing(row: Record<string, unknown>): Listing | null {
     id: radarCode || `${phone}-${divarUrl || city}`,
     radarCode,
     city,
+    neighborhood,
     area: num(mapped.area),
     rooms: parseRooms(mapped.rooms),
     priceMillion,
+    depositMillion: deposit,
+    rentMillion: rent,
+    pricePerMeter,
     priceRaw: "",
     dealType: (DEALS.includes(str(mapped.dealType) as DealType)
       ? str(mapped.dealType)
@@ -186,6 +213,8 @@ function rowToListing(row: Record<string, unknown>): Listing | null {
         : ""),
     date,
     dateRaw,
+    poster: str(mapped.poster),
+    address: str(mapped.address),
   };
 }
 

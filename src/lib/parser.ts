@@ -33,12 +33,20 @@ export interface Listing {
   id: string;
   radarCode: string;
   city: string;
+  /** محله (اگر در آگهی ذکر شده باشد). */
+  neighborhood: string;
   /** متراژ به متر مربع؛ null اگر در آگهی ذکر نشده باشد. */
   area: number | null;
   /** تعداد اتاق؛ null اگر ذکر نشده باشد (بدون خواب = 0). */
   rooms: number | null;
   /** قیمت کل/رهن به میلیون تومان؛ 0 اگر ذکر نشده باشد. */
   priceMillion: number;
+  /** ودیعه به میلیون تومان (برای رهن و اجاره). */
+  depositMillion: number | null;
+  /** اجاره ماهانه به میلیون تومان (برای رهن و اجاره). */
+  rentMillion: number | null;
+  /** قیمت هر متر به میلیون تومان (اگر محاسبه شده باشد). */
+  pricePerMeter: number | null;
   /** متن خام خط قیمت برای نمایش. */
   priceRaw: string;
   dealType: DealType;
@@ -53,6 +61,22 @@ export interface Listing {
   date: string;
   /** تاریخ خام مانند 1404/7/10 برای نمایش. */
   dateRaw: string;
+  /** آگهی‌دهنده: «شخصی» یا «مشاور املاک». */
+  poster: string;
+  /** آدرس متنی (از فیلد ادرس/extra). */
+  address: string;
+}
+
+/** فیلدهای عددی/اختیاری پیش‌فرض برای ساخت آگهی. */
+export function emptyExtras() {
+  return {
+    neighborhood: "",
+    depositMillion: null,
+    rentMillion: null,
+    pricePerMeter: null,
+    poster: "",
+    address: "",
+  };
 }
 
 export interface ParseResult {
@@ -321,6 +345,10 @@ function parseChunk(chunk: RawChunk): Listing | null {
   const propertyType = classifyProperty(propTok ?? undefined);
   const fallbackTitle = `${cityLabel}، ${propertyType}${area ? ` ${area} متر` : ""}`;
 
+  // آدرس از بخش توضیحات (خط ادرس:) یا extra
+  const addrFromDesc = body.match(/(?:ا.?درس|آ.?درس|نشانی)\s*[:：]\s*([^\n]+)/)?.[1]?.trim() ?? "";
+  const address = addrFromDesc || "";
+
   return {
     id: radarCode || chunk.url,
     radarCode,
@@ -339,6 +367,8 @@ function parseChunk(chunk: RawChunk): Listing | null {
     mapsUrl: buildMapsUrl(cityLabel, description),
     date,
     dateRaw,
+    ...emptyExtras(),
+    address,
   };
 }
 
