@@ -1,6 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { FileCode2, Loader2, Sparkles, UploadCloud } from "lucide-react";
+import {
+  FileCode2,
+  FileSpreadsheet,
+  Loader2,
+  Sparkles,
+  UploadCloud,
+} from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 
 interface UploadZoneProps {
@@ -8,6 +14,8 @@ interface UploadZoneProps {
   onSample: () => void;
   loading: boolean;
   progress: { done: number; total: number } | null;
+  /** برچسب حالت پردازش (استخراج HTML یا واردکردن CSV/JSON/اکسل). */
+  busyLabel?: string;
 }
 
 /** ناحیه درگ‌انداختن و انتخاب فایل HTML خام. */
@@ -16,6 +24,7 @@ export default function UploadZone({
   onSample,
   loading,
   progress,
+  busyLabel = "در حال استخراج آگهی‌ها از فایل…",
 }: UploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -65,7 +74,7 @@ export default function UploadZone({
       <input
         ref={inputRef}
         type="file"
-        accept=".html,.htm,.txt,text/html,text/plain"
+        accept=".html,.htm,.txt,.csv,.json,.xlsx,.xls,text/html,text/plain,text/csv,application/json"
         className="hidden"
         onChange={(e) => {
           pick(e.target.files);
@@ -84,7 +93,7 @@ export default function UploadZone({
       <div className="relative space-y-1.5">
         {loading ? (
           <>
-            <p className="text-base font-bold">در حال استخراج آگهی‌ها…</p>
+            <p className="text-base font-bold">{busyLabel.replace(/…$/, "")}…</p>
             <p className="text-sm text-muted-foreground">
               {progress && progress.total > 0
                 ? `${progress.done.toLocaleString("fa-IR")} از ${progress.total.toLocaleString("fa-IR")} بلوک پردازش شد`
@@ -94,14 +103,13 @@ export default function UploadZone({
         ) : (
           <>
             <p className="text-lg font-bold">
-              فایل HTML خام کانال را اینجا رها کنید
+              فایل را اینجا رها کنید یا انتخاب کنید
             </p>
             <p className="max-w-md text-sm text-muted-foreground">
-              یا برای انتخاب فایل کلیک کنید — فرمت‌های{" "}
-              <span className="font-medium text-foreground/80">
-                .html، .htm و .txt
-              </span>{" "}
-              پشتیبانی می‌شوند.
+              استخراج از HTML خام کانال با{" "}
+              <span className="font-medium text-foreground/80">.html/.txt</span>{" "}
+              — یا بازخوانی خروجی‌های خود برنامه با{" "}
+              <span className="font-medium text-foreground/80">.csv، .xlsx و .json</span>
             </p>
             <p className="text-xs text-muted-foreground/80">
               آگهی‌های بدون شماره تلفن به‌صورت خودکار نادیده گرفته می‌شوند.
@@ -130,6 +138,10 @@ export default function UploadZone({
             <FileCode2 className="size-4" />
             انتخاب فایل
           </Button>
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <FileSpreadsheet className="size-3.5" />
+            CSV · اکسل · JSON
+          </span>
           <Button
             type="button"
             size="sm"

@@ -13,6 +13,11 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { exportCsv, exportExcel, exportJson } from "@/lib/exporters";
 import {
+  IMPORT_ACCEPT,
+  importListingsFile,
+  type ImportSource,
+} from "@/lib/importers";
+import {
   DEFAULT_FILTERS,
   applyFilters,
   hasActiveFilters,
@@ -83,6 +88,7 @@ export default function Dashboard() {
   const [skipped, setSkipped] = useState(0);
   const [fileName, setFileName] = useState<string | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("در حال استخراج آگهی‌ها از فایل…");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(
     null,
   );
@@ -137,12 +143,50 @@ export default function Dashboard() {
 
   const handleFile = useCallback(
     async (file: File) => {
+      const name = file.name.toLowerCase();
       try {
+        // فایل‌های خروجی خود برنامه (CSV/JSON/اکسل) مستقیماً وارد می‌شوند
+        if (name.endsWith(".csv") || name.endsWith(".json") || name.endsWith(".xlsx") || name.endsWith(".xls")) {
+          setParsing(true);
+          setError(null);
+          setBusyLabel(`در حال خواندن ${name.endsWith(".csv") ? "CSV" : name.endsWith(".json") ? "JSON" : "اکسل"}…`);
+          setProgress({ done: 0, total: 0 });
+          const result = await importListingsFile(file, (done, total) =>
+            setProgress({ done, total }),
+          );
+          if (result.total === 0) {
+            setError(
+              "هیچ ردیفی در فایل پیدا نشد. فایل باید خروجی CSV/JSON/اکسل همین برنامه باشد.",
+            );
+            return;
+          }
+          if (result.listings.length === 0) {
+            setError(
+              "هیچ ردیف معتبری با شماره تلفن پیدا نشد. ستون شماره تلفن باید پر باشد.",
+            );
+            return;
+          }
+          setListings(result.listings);
+          setSkipped(result.skipped);
+          setFileName(file.name);
+          setFilters(DEFAULT_FILTERS);
+          setVisibleCount(PAGE_SIZE);
+          toast.success(`${faNum(result.listings.length)} آگهی از ${result.source === "csv" ? "CSV" : result.source === "json" ? "JSON" : "اکسل"} وارد شد`, {
+            description:
+              result.skipped > 0
+                ? `${faNum(result.skipped)} ردیف بدون شماره تلفن نادیده گرفته شد`
+                : undefined,
+          });
+          return;
+        }
         const text = await file.text();
         await parseText(text, file.name);
       } catch (e) {
         console.error(e);
         setError("خواندن فایل ممکن نشد. دوباره تلاش کنید.");
+      } finally {
+        setParsing(false);
+        setProgress(null);
       }
     },
     [parseText],
@@ -270,7 +314,7 @@ export default function Dashboard() {
             <input
               ref={headerInputRef}
               type="file"
-              accept=".html,.htm,.txt,text/html,text/plain"
+              accept={".html,.htm,.txt," + IMPORT_ACCEPT + ",text/html,text/plain"}
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -341,7 +385,7 @@ export default function Dashboard() {
             <div className="mb-3 flex items-center gap-2.5">
               <Loader2 className="size-5 animate-spin text-primary" />
               <p className="font-bold">
-                در حال استخراج آگهی‌ها از فایل…
+                {busyLabel}
                 {progress && progress.total > 0 && (
                   <span className="mr-1 text-sm font-normal text-muted-foreground">
                     {faNum(pct)}٪
@@ -378,6 +422,7 @@ export default function Dashboard() {
               onSample={handleSample}
               loading={parsing}
               progress={progress}
+              busyLabel={busyLabel}
             />
             <div className="grid gap-4 sm:grid-cols-3">
               {HINTS.map(({ icon: Icon, title, body }) => (
