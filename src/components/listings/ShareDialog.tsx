@@ -31,6 +31,8 @@ interface ShareDialogProps {
   listings: ShareableListing[];
   settings: ShareSettings;
   onSettingsChange: (patch: Partial<ShareSettings>) => void;
+  /** تعداد پیش‌فرض آگهی ارسالی موقع باز شدن دیالوگ (مثلاً تعداد انتخاب‌شده‌ها). */
+  initialCount?: number;
   onShared?: () => void;
 }
 
@@ -50,10 +52,21 @@ export default function ShareDialog({
   listings,
   settings,
   onSettingsChange,
+  initialCount = 1,
   onShared,
 }: ShareDialogProps) {
-  const [count, setCount] = useState(1);
+  const [count, setCount] = useState(initialCount);
   const [busy, setBusy] = useState<ShareChannel | null>(null);
+  const [wasOpen, setWasOpen] = useState(open);
+
+  // با هر بار باز شدن، تعداد به انتخاب فعلی کاربر برمی‌گردد
+  // (الگوی رسمی React: تنظیم state هنگام رندر وقتی props تغییر کرده)
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setCount(Math.max(1, Math.min(initialCount, Math.max(listings.length, 1))));
+    }
+  }
 
   const limit = listings.length;
   const effective = Math.max(1, Math.min(count, limit));

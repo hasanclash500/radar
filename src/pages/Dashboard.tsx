@@ -19,7 +19,7 @@ import { DEFAULT_FILTERS, applyFilters, hasActiveFilters, type Filters } from "@
 import { faNum, formatPrice } from "@/lib/format";
 import { DEAL_TYPES, PROPERTY_TYPES, parseHtmlFile, type DealType, type Listing, type PropertyType } from "@/lib/parser";
 import { SAMPLE_HTML } from "@/lib/sample";
-import { DEFAULT_SHARE_SETTINGS, type ShareableListing } from "@/lib/share";
+import { DEFAULT_SHARE_SETTINGS, type ShareSettings, type ShareableListing } from "@/lib/share";
 import {
   Building2, Coins, FileCode2, FileJson, FileSpreadsheet, FileText, Loader2,
   LogOut, MapPinned, Radar, RotateCcw, Ruler, SearchX, Send, Settings, Upload, X,
@@ -117,6 +117,16 @@ export default function Dashboard() {
       shareFooter: settingsRow?.shareFooter || "",
     }),
     [settingsRow],
+  );
+  // ویرایش محلی نام دفتر/شماره/متن پایانی در دیالوگ ارسال (بدون نیاز به دسترسی ادمین)
+  const [shareOverride, setShareOverride] = useState<Partial<ShareSettings>>({});
+  const shareSettings = useMemo<ShareSettings>(
+    () => ({
+      officeName: shareOverride.officeName ?? settings.officeName,
+      managerPhone: shareOverride.managerPhone ?? settings.managerPhone,
+      shareFooter: shareOverride.shareFooter ?? settings.shareFooter,
+    }),
+    [shareOverride, settings],
   );
 
   const afterLoad = useCallback(() => {
@@ -291,18 +301,21 @@ export default function Dashboard() {
   const pct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
 
   const shareList: ShareableListing[] = useMemo(
-    () => (selected.size > 0 ? filtered : filtered.slice(0, 1))
-      .filter((l) => selected.size === 0 || selected.has(listingKey(l)))
-      .map((l) => ({
-        key: listingKey(l),
-        title: l.title, city: l.city, neighborhood: l.neighborhood,
-        area: l.area, rooms: l.rooms, priceMillion: l.priceMillion,
-        depositMillion: l.depositMillion, rentMillion: l.rentMillion,
-        dealType: l.dealType, propertyType: l.propertyType,
-        description: l.description, address: l.address,
-        divarUrl: l.divarUrl, mapsUrl: l.mapsUrl,
-        contactPhone: canSeePhone ? l.phone : settings.managerPhone,
-      })),
+    () =>
+      (selected.size > 0
+        ? filtered.filter((l) => selected.has(listingKey(l)))
+        : // بدون انتخاب: تا ۵۰ آگهی بالای فهرست؛ تعداد در دیالوگ انتخاب می‌شود
+          filtered.slice(0, 50))
+        .map((l) => ({
+          key: listingKey(l),
+          title: l.title, city: l.city, neighborhood: l.neighborhood,
+          area: l.area, rooms: l.rooms, priceMillion: l.priceMillion,
+          depositMillion: l.depositMillion, rentMillion: l.rentMillion,
+          dealType: l.dealType, propertyType: l.propertyType,
+          description: l.description, address: l.address,
+          divarUrl: l.divarUrl, mapsUrl: l.mapsUrl,
+          contactPhone: canSeePhone ? l.phone : settings.managerPhone,
+        })),
     [filtered, selected, canSeePhone, settings.managerPhone],
   );
 
@@ -539,7 +552,9 @@ export default function Dashboard() {
       </div>
 
       <ShareDialog open={shareOpen} onOpenChange={setShareOpen}
-        listings={shareList} settings={settings} onSettingsChange={() => {}}
+        listings={shareList} settings={shareSettings}
+        initialCount={selected.size || 1}
+        onSettingsChange={(patch) => setShareOverride((prev) => ({ ...prev, ...patch }))}
         onShared={() => { if (selected.size > 0) void markShared({ keys: Array.from(selected) }); }} />
     </main>
   );

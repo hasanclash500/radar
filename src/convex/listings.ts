@@ -20,28 +20,31 @@ async function resolve(ctx: Ctx): Promise<{
   const userId = await getAuthUserId(ctx);
   if (userId === null) return null;
 
-  const prof = await ctx.db
+  // take به‌جای unique: رکورد پروفایل تکراری نباید همهٔ کوئری‌ها را بترکاند
+  const profs = await ctx.db
     .query("userProfiles")
     .withIndex("by_user", (q) => q.eq("userId", userId))
-    .unique();
+    .take(2);
+  const prof = profs[0];
   // پروفایل ندارد ⇒ هنوز ensureProfile صدا زده نشده ⇒ فعلاً غیرمجاز
   const role = (prof?.officeRole ?? OFFICE_ROLES.GUEST) as OfficeRole;
   return { role, privileged: PRIVILEGED_ROLES.includes(role) };
 }
 
 async function managerPhone(ctx: Ctx): Promise<string> {
-  const s = await ctx.db
+  const rows = await ctx.db
     .query("appSettings")
     .withIndex("by_key", (q) => q.eq("key", "global"))
-    .unique();
-  return s?.managerPhone ?? "";
+    .take(2);
+  return rows[0]?.managerPhone ?? "";
 }
 
 async function byKey(ctx: Ctx, key: string): Promise<Doc<"listings"> | null> {
-  return await ctx.db
+  const rows = await ctx.db
     .query("listings")
     .withIndex("by_key", (q) => q.eq("key", key))
-    .unique();
+    .take(2);
+  return rows[0] ?? null;
 }
 
 /** یک سند آگهی را به شکل قابل استفاده در UI (نوع Listing) تبدیل می‌کند. */

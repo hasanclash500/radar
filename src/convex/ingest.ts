@@ -78,10 +78,11 @@ export const saveIngested = internalMutation({
       }
     }
 
-    const settings = await ctx.db
+    const rows = await ctx.db
       .query("appSettings")
       .withIndex("by_key", (q) => q.eq("key", "global"))
-      .unique();
+      .take(2);
+    const settings = rows[0];
     if (settings) {
       await ctx.db.patch(settings._id, {
         lastImportAt: now,
@@ -106,10 +107,11 @@ export const saveIngested = internalMutation({
 export const recordImportError = internalMutation({
   args: { message: v.string() },
   handler: async (ctx, args) => {
-    const settings = await ctx.db
+    const rows = await ctx.db
       .query("appSettings")
       .withIndex("by_key", (q) => q.eq("key", "global"))
-      .unique();
+      .take(2);
+    const settings = rows[0];
     const now = Date.now();
     if (settings) {
       await ctx.db.patch(settings._id, { lastImportError: args.message, lastImportAt: now });
@@ -128,11 +130,11 @@ export const recordImportError = internalMutation({
 export const getSource = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const settings = await ctx.db
+    const rows = await ctx.db
       .query("appSettings")
       .withIndex("by_key", (q) => q.eq("key", "global"))
-      .unique();
-    return settings?.sourceUrl ?? "";
+      .take(2);
+    return rows[0]?.sourceUrl ?? "";
   },
 });
 
@@ -142,11 +144,11 @@ export const currentRole = internalQuery({
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) return null;
-    const prof = await ctx.db
+    const profs = await ctx.db
       .query("userProfiles")
       .withIndex("by_user", (q) => q.eq("userId", userId))
-      .unique();
-    return prof?.officeRole ?? null;
+      .take(2);
+    return profs[0]?.officeRole ?? null;
   },
 });
 
@@ -261,10 +263,11 @@ export const myAccess = query({
     if (userId === null) {
       return { role: OFFICE_ROLES.GUEST, isPrivileged: false, isAdmin: false };
     }
-    const prof = await ctx.db
+    const profs = await ctx.db
       .query("userProfiles")
       .withIndex("by_user", (q) => q.eq("userId", userId))
-      .unique();
+      .take(2);
+    const prof = profs[0];
     const role = (prof?.officeRole ?? OFFICE_ROLES.GUEST) as OfficeRole;
     return {
       role,
@@ -278,10 +281,11 @@ export const myAccess = query({
 export const importStatus = query({
   args: {},
   handler: async (ctx) => {
-    const settings = await ctx.db
+    const rows = await ctx.db
       .query("appSettings")
       .withIndex("by_key", (q) => q.eq("key", "global"))
-      .unique();
+      .take(2);
+    const settings = rows[0];
     return {
       sourceUrl: settings?.sourceUrl ?? "",
       lastImportAt: settings?.lastImportAt ?? null,
@@ -298,10 +302,11 @@ export const canSeePhones = query({
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) return false;
-    const prof = await ctx.db
+    const profs = await ctx.db
       .query("userProfiles")
       .withIndex("by_user", (q) => q.eq("userId", userId))
-      .unique();
+      .take(2);
+    const prof = profs[0];
     const role = (prof?.officeRole ?? OFFICE_ROLES.GUEST) as never;
     return PRIVILEGED_ROLES.includes(role);
   },

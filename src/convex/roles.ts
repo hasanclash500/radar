@@ -6,16 +6,25 @@ import { OFFICE_ROLES, PRIVILEGED_ROLES, type OfficeRole } from "./schema";
 export const isPrivileged = (role: OfficeRole) =>
   PRIVILEGED_ROLES.includes(role);
 
+/** پروفایل کاربر؛ به‌جای unique تا رکورد تکراری، کوئری را نترکانَد. */
+async function myProfile(
+  ctx: { db: import("./_generated/server").QueryCtx["db"] },
+  userId: string,
+) {
+  const profs = await ctx.db
+    .query("userProfiles")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(2);
+  return profs[0] ?? null;
+}
+
 /** نقش کاربر جاری. اگر پروفایل نداشته باشد null برمی‌گرداند. */
 export const myRole = query({
   args: {},
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) return null;
-    const prof = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .unique();
+    const prof = await myProfile(ctx, userId);
     if (!prof) return null;
     const role = (prof.officeRole ?? OFFICE_ROLES.GUEST) as OfficeRole;
     return { role, isPrivileged: isPrivileged(role) };
@@ -32,10 +41,7 @@ export const ensureProfile = mutation({
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("ورود لازم است.");
 
-    const existing = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .unique();
+    const existing = await myProfile(ctx, userId);
     if (existing) {
       const role = (existing.officeRole ?? OFFICE_ROLES.GUEST) as OfficeRole;
       return { role, isPrivileged: isPrivileged(role) };
@@ -59,10 +65,7 @@ export const listUsers = query({
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) return null;
-    const me = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .unique();
+    const me = await myProfile(ctx, userId);
     if (me?.officeRole !== OFFICE_ROLES.ADMIN) return null;
 
     const profiles = await ctx.db.query("userProfiles").collect();
@@ -86,10 +89,7 @@ export const setUserRole = mutation({
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("ورود لازم است.");
-    const me = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .unique();
+    const me = await myProfile(ctx, userId);
     if (me?.officeRole !== OFFICE_ROLES.ADMIN) {
       throw new Error("فقط مدیر اجازهٔ تغییر نقش را دارد.");
     }
@@ -97,10 +97,7 @@ export const setUserRole = mutation({
       throw new Error("نقش نامعتبر است.");
     }
 
-    const prof = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
-      .unique();
+    const prof = await myProfile(ctx, args.userId);
     if (prof) {
       await ctx.db.patch(prof._id, { officeRole: args.role as OfficeRole });
     } else {

@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
+import { faNum } from "@/lib/format";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
@@ -130,7 +131,7 @@ export default function Admin() {
       }
       if (result && "added" in result) {
         toast.success(
-          `${result.added} آگهی جدید ذخیره شد و ${result.updated} آگهی بروزرسانی شد.`,
+          `${faNum(result.added ?? 0)} آگهی جدید ذخیره شد و ${faNum(result.updated ?? 0)} آگهی بروزرسانی شد.`,
         );
       }
     } catch (error) {
