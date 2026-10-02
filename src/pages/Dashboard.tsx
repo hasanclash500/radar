@@ -59,7 +59,7 @@ export default function Dashboard() {
   // آگهی‌های ذخیره‌شدهٔ سرور؛ صفحه‌های بعدی هنگام اسکرول خوانده می‌شوند
   const { results: serverPages, status, loadMore } = usePaginatedQuery(
     api.listings.listListings,
-    { initialNumItems: 60 },
+    {},
     { initialNumItems: 60 },
   );
   const serverItems = useMemo(
