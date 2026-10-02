@@ -153,7 +153,6 @@ function normalizeDate(value: unknown): { date: string; dateRaw: string } {
 function normalizePhone(value: unknown): string | null {
   if (typeof value !== "string") return null;
   // آگهی‌هایی که شماره موبایل ندارند (مثل «اجاره») رد می‌شوند
-  if (!/09\d{9}/.test(value)) return null;
   const digits = toEnglishDigits(value).replace(/\D/g, "");
   const m = digits.match(/09\d{9}/);
   return m ? m[0] : null;

@@ -63,6 +63,23 @@ function num(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * نرمال‌سازی ورودی بازهٔ تاریخ ثبت به شکل صفرپرشده و مرتب‌سازی‌پذیر `YYYY-MM-DD`
+ * (تقویم شمسی). ورودی‌های معتبر: `1404/7/1`، `1404-7-1`، `۱۴۰۴/۰۷/۰۱`.
+ */
+export function normalizeDateInput(value: string): string {
+  const s = value
+    .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .trim()
+    .replace(/[/\-.]/g, "-");
+  const parts = s.split("-").filter(Boolean);
+  if (parts.length !== 3 || parts.some((p) => !/^\d+$/.test(p))) return "";
+  const [y, mo, d] = parts;
+  if (y.length < 3 || y.length > 4 || mo.length > 2 || d.length > 2) return "";
+  return `${y.padStart(4, "0")}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+}
+
 function matchesRooms(listing: Listing, rooms: string): boolean {
   if (rooms === "همه") return true;
   if (listing.rooms === null) return false;
